@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>超级跳跳岛 · 动态海报（p5.js）</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #1b2430; }
+  body { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 24px 0; }
+  canvas { box-shadow: 0 18px 60px rgba(0,0,0,.55); border-radius: 6px; }
+  p { color: #9db4c8; font: 13px/1.6 system-ui, sans-serif; margin: 0; }
+</style>
+<script src="p5.min.js"></script>
+</head>
+<body>
+<p>超级跳跳岛 · p5.js 动态海报（画布 960 × 1280，动画实时渲染）</p>
+<script>
+/* ============================================================
+   超级跳跳岛 · Super Jumpy Island — p5.js 动态海报
+   ============================================================ */
+const W = 960, H = 1280;
+const GROUND_Y = 1050;          // 地面线
+const t0 = performance.now();   // 动画时钟基准
+let fontCN = null;
+
+function setup() {
+  const c = createCanvas(W, H);
+  c.parent(document.body);
+  pixelDensity(2);
+  frameRate(60);
+  // 注意：不要传 'system-ui, "Microsoft YaHei", sans-serif' 这类带引号的 CSS 字族列表，
+  // p5 拼出的 canvas font 字符串会被浏览器判定非法而静默回退到 10px 默认字体（汉字变极小）
+  textFont('sans-serif');
+}
+
+function now() { return (performance.now() - t0) / 1000; }
+
+/* ---------- 天空与太阳 ---------- */
+function drawSky(t) {
+  // 天空随时间轻微呼吸的渐变
+  const breathe = sin(t * 0.35) * 10;
+  const top = color(70, 150 + breathe, 235);
+  const mid = color(135, 205 + breathe, 250);
+  const bot = color(210, 240, 255);
+  for (let y = 0; y < GROUND_Y; y += 4) {
+    const k = y / GROUND_Y;
+    const cc = k < 0.55 ? lerpColor(top, mid, k / 0.55) : lerpColor(mid, bot, (k - 0.55) / 0.45);
+    noStroke(); fill(cc); rect(0, y, W, 4);
+  }
+  // 太阳：呼吸光晕 + 光芒旋转（避开标题板，放在右侧中段）
+  const sx = 855, sy = 500;
+  const pulse = 1 + 0.05 * sin(t * 1.6);
+  noStroke();
+  for (let i = 4; i >= 1; i--) {
+    fill(255, 225, 120, 16);
+    circle(sx, sy, (72 + i * 18) * pulse);
+  }
+  fill(255, 220, 90);
+  circle(sx, sy, 104 * pulse);
+  // 光芒
+  push();
+  translate(sx, sy);
+  rotate(t * 0.15);
+  fill(255, 220, 90, 130);
+  for (let i = 0; i < 12; i++) {
+    rotate(TWO_PI / 12);
+    rect(60, -4, 22 * pulse, 8, 4);
+  }
+  pop();
+}
+
+/* ---------- 视差云 ---------- */
+const clouds = [
+  { y: 150, s: 1.15, v: 14, seed: 1.7 },
+  { y: 260, s: 0.85, v: 24, seed: 4.2 },
+  { y: 380, s: 1.45, v: 9,  seed: 7.9 },
+  { y: 500, s: 0.7,  v: 33, seed: 11.3 },
+  { y: 620, s: 1.0,  v: 19, seed: 15.6 },
+  { y: 760, s: 0.6,  v: 40, seed: 19.1 },
+];
+function drawClouds(t) {
+  noStroke();
+  for (const c of clouds) {
+    const span = W + 460;
+    let x = (c.seed * 997 - t * c.v) % span;
+    if (x < 0) x += span;
+    x -= 230;
+    const y = c.y + sin(t * 0.8 + c.seed) * 6;
+    fill(255, 235);
+    const s = c.s;
+    ellipse(x, y, 110 * s, 44 * s);
+    ellipse(x + 55 * s, y - 18 * s, 90 * s, 52 * s);
+    ellipse(x - 50 * s, y - 8 * s, 70 * s, 38 * s);
+    ellipse(x + 15 * s, y + 12 * s, 130 * s, 36 * s);
+  }
+}
+
+/* ---------- 远山 / 丘陵 ---------- */
+function drawHills(t) {
+  noStroke();
+  // 远山（淡蓝绿）
+  fill(120, 190, 170, 210);
+  const off1 = (t * 6) % 480;
+  beginShape();
+  vertex(0, 900);
+  for (let x = 0; x <= W; x += 8) {
+    const y = 900 - 130 * (0.5 + 0.5 * sin((x + off1) * 0.008)) - 40 * sin((x + off1) * 0.021 + 2);
+    vertex(x, y);
+  }
+  vertex(W, 900); vertex(W, GROUND_Y); vertex(0, GROUND_Y);
+  endShape(CLOSE);
+  // 近丘（翠绿）
+  fill(76, 175, 105);
+  const off2 = (t * 14) % 640;
+  beginShape();
+  vertex(0, 990);
+  for (let x = 0; x <= W; x += 8) {
+    const y = 990 - 90 * (0.5 + 0.5 * sin((x + off2) * 0.011 + 1)) - 25 * sin((x + off2) * 0.03);
+    vertex(x, y);
+  }
+  vertex(W, 990); vertex(W, GROUND_Y); vertex(0, GROUND_Y);
+  endShape(CLOSE);
+  // 灌木丛（贴着近丘轮廓）
+  const bushXs = [70, 175, 288, 610, 700, 812, 905];
+  fill(56, 148, 82);
+  for (let i = 0; i < bushXs.length; i++) {
+    const bx = bushXs[i];
+    const by = 990 - 90 * (0.5 + 0.5 * sin((bx + off2) * 0.011 + 1)) - 25 * sin((bx + off2) * 0.03);
+    const s = 0.85 + (i % 3) * 0.16;
+    ellipse(bx, by + 10, 48 * s, 30 * s);
+    ellipse(bx - 23 * s, by + 14, 33 * s, 21 * s);
+    ellipse(bx + 23 * s, by + 14, 31 * s, 19 * s);
+  }
+}
+
+/* ---------- 地面（砖块纹理） ---------- */
+function drawGround(t) {
+  noStroke();
+  fill(94, 60, 34);
+  rect(0, GROUND_Y, W, H - GROUND_Y);
+  fill(122, 80, 46);
+  for (let y = GROUND_Y; y < H; y += 26) {
+    const row = Math.floor((y - GROUND_Y) / 26);
+    for (let x = (row % 2 ? -30 : 0); x < W; x += 60) rect(x + 2, y + 2, 56, 22, 4);
+  }
+  // 草皮
+  fill(66, 158, 90);
+  rect(0, GROUND_Y - 12, W, 22, 6);
+  fill(88, 190, 110);
+  for (let x = 0; x < W; x += 24) {
+    const sway = sin(t * 2.2 + x * 0.05) * 3;
+    rect(x, GROUND_Y - 20 + sway * 0.4, 12, 12, 3);
+  }
+}
+
+/* ---------- 角色（循环跳跃，带挤压拉伸与影子） ---------- */
+function drawHero(t) {
+  const cycle = t * 1.15;
+  const hop = abs(sin(cycle * PI));           // 0..1..0
+  const jumpH = 170 * hop;
+  const cx = W / 2 - 40;
+  const feetY = GROUND_Y - 12 - jumpH;
+  const scaleSy = 1 + 0.14 * (1 - hop) * sin(cycle * TWO_PI); // 落地压扁/起跳拉伸
+  const scaleSx = 1 - 0.12 * (1 - hop) * sin(cycle * TWO_PI);
+
+  // 影子（跳得越高影子越小越淡）
+  noStroke();
+  fill(0, 40, 0, 60 * (1 - hop * 0.7));
+  ellipse(cx, GROUND_Y - 6, 78 * (1 - hop * 0.45), 17 * (1 - hop * 0.45));
+
+  push();
+  translate(cx, feetY);
+  scale(1.5 * scaleSx, 1.5 * scaleSy);
+  const dir = 1;
+  // 腿
+  fill(107, 58, 30);
+  rect(-11, -12, 9, 12, 2);
+  rect(2, -12, 9, 12, 2);
+  fill(74, 38, 18);
+  ellipse(-6, -2, 14, 8);
+  ellipse(7, -2, 14, 8);
+  // 身体
+  fill(47, 111, 208);
+  rect(-13, -40, 26, 30, 5);
+  // 手臂（随跳跃摆动）
+  fill(233, 79, 55);
+  const armA = -6 - hop * 8;
+  rect(-22, armA - 2, 7, 14, 3);
+  rect(15, armA - 6, 7, 14, 3);
+  // 身体纽扣
+  fill(255, 217, 61);
+  circle(-5, -30, 4); circle(5, -30, 4);
+  // 头
+  const headR = 13;
+  const headY = -40 - headR + 2;
+  fill(247, 207, 166);
+  circle(0, headY, headR * 2);
+  // 帽子
+  fill(233, 79, 55);
+  arc(0, headY - 3, (headR + 1) * 2, (headR + 1) * 2, PI, TWO_PI);
+  rect(-headR - 1, headY - 4, (headR + 1) * 2, 6, 3);
+  ellipse(dir * headR * 0.8, headY - 2, headR * 1.5, 6);
+  // 帽徽
+  fill(255, 246, 229);
+  circle(0, headY - 8, 8);
+  fill(233, 79, 55);
+  textSize(7); textAlign(CENTER, CENTER);
+  text('M', 0, headY - 7.5);
+  // 眼睛
+  fill(43, 26, 18);
+  ellipse(dir * 4, headY + 3, 3.4, 5);
+  // 胡子
+  fill(74, 44, 26);
+  rect(dir * 2 - 4, headY + 7, 9, 4, 2);
+  pop();
+
+  // 落地灰尘粒子
+  if (hop < 0.12) {
+    for (let i = 0; i < 5; i++) {
+      const ph = (cycle * 7 + i * 1.3) % 1;
+      fill(255, 255, 255, 150 * (1 - ph));
+      circle(cx - 24 + i * 12, GROUND_Y - 14 - ph * 16, 7 * (1 - ph));
+    }
+  }
+}
+
+/* ---------- 旋转金币 ---------- */
+const coinDefs = [
+  { x: 168, y: 690, ph: 0.0 },
+  { x: 262, y: 630, ph: 0.8 },
+  { x: 358, y: 588, ph: 1.6 },
+  { x: 470, y: 566, ph: 2.4 },
+  { x: 585, y: 588, ph: 3.2 },
+  { x: 682, y: 632, ph: 4.0 },
+  { x: 774, y: 700, ph: 4.8 },
+];
+function drawCoins(t) {
+  noStroke();
+  for (const c of coinDefs) {
+    const bob = sin(t * 2 + c.ph) * 10;
+    const spin = cos(t * 3 + c.ph * 2);
+    push();
+    translate(c.x, c.y + bob);
+    fill(212, 148, 6);
+    ellipse(0, 4, 44 * abs(spin) + 5, 50);
+    fill(255, 217, 61);
+    ellipse(0, 0, 44 * abs(spin) + 3, 47);
+    if (abs(spin) > 0.35) {
+      fill(212, 148, 6);
+      textStyle(BOLD);
+      textSize(26 * abs(spin)); textAlign(CENTER, CENTER);
+      text('¥', 0, 1);
+      textStyle(NORMAL);
+    }
+    pop();
+  }
+}
+
+/* ---------- 闪光粒子 ---------- */
+const sparkSeeds = [];
+for (let i = 0; i < 26; i++) sparkSeeds.push({ x: random(W), y: random(80, 1000), s: random(1.5, 3.5), ph: random(TWO_PI), v: random(0.6, 1.8) });
+function drawSparks(t) {
+  noStroke();
+  for (const s of sparkSeeds) {
+    const a = 120 + 120 * sin(t * s.v + s.ph);
+    if (a < 30) continue;
+    fill(255, 250, 210, a);
+    const tw = 0.5 + 0.5 * sin(t * s.v + s.ph);
+    rect(s.x - s.s * 2.4 * tw, s.y - s.s * 0.4, s.s * 4.8 * tw, s.s * 0.9, 2);
+    rect(s.x - s.s * 0.4, s.y - s.s * 2.4 * tw, s.s * 0.9, s.s * 4.8 * tw, 2);
+  }
+}
+
+/* ---------- 标题（逐字起伏） ---------- */
+function drawTitle(t) {
+  const title = '超级跳跳岛';
+  const sub = 'SUPER JUMPY ISLAND';
+  // 底板
+  push();
+  translate(W / 2, 215);
+  rotate(-0.025 + sin(t * 0.5) * 0.008);
+  noStroke();
+  fill(43, 26, 18, 235);
+  rect(-305, -78, 610, 156, 26);
+  fill(255, 217, 61);
+  rect(-305, -78, 610, 12, 6);
+  rect(-305, 66, 610, 12, 6);
+  // 主标题逐字弹跳
+  textStyle(BOLD);
+  textSize(86);
+  textAlign(CENTER, CENTER);
+  const chars = title.split('');
+  const cw = 100;
+  for (let i = 0; i < chars.length; i++) {
+    const bob = sin(t * 2.4 + i * 0.65) * 9;
+    const x = (i - (chars.length - 1) / 2) * cw;
+    // 字块投影
+    fill(180, 60, 30);
+    text(chars[i], x + 5, -16 + bob + 6);
+    // 亮字
+    fill(255, 240, 200);
+    text(chars[i], x, -16 + bob);
+  }
+  textStyle(NORMAL);
+  // 副标题
+  fill(255, 217, 61);
+  textSize(24);
+  text(sub, 0, 54 + sin(t * 1.5) * 2);
+  pop();
+  // 徽章：10 关
+  push();
+  translate(W / 2 + 262, 330 + sin(t * 1.8) * 6);
+  rotate(sin(t * 0.9) * 0.08);
+  fill(233, 79, 55, 245);
+  circle(0, 0, 104);
+  fill(255);
+  textAlign(CENTER, CENTER);
+  textStyle(BOLD);
+  textSize(38); text('10', 0, -13);
+  textStyle(NORMAL);
+  textSize(17); text('大关卡', 0, 20);
+  pop();
+}
+
+/* ---------- 底部信息 ---------- */
+function drawFooter(t) {
+  noStroke();
+  textAlign(CENTER, CENTER);
+  fill(255, 240, 210, 230);
+  textSize(26);
+  text('踩敌人 · 顶砖块 · 吃蘑菇变大 · 夺旗通关', W / 2, 1120);
+  fill(255, 217, 61);
+  textSize(22);
+  const url = '▶  jiudai-lab.github.io/super-jumpy-island';
+  text(url, W /2, 1168 + sin(t * 1.6) * 2.5);
+  fill(255, 240, 210, 150);
+  textSize(16);
+  text('p5.js 动态海报 · 实时渲染 · 60 FPS', W / 2, 1218);
+}
+
+function draw() {
+  const t = now();
+  drawSky(t);
+  drawSparks(t);
+  drawClouds(t);
+  drawHills(t);
+  drawCoins(t);
+  drawGround(t);
+  drawHero(t);
+  drawTitle(t);
+  drawFooter(t);
+}
+</script>
+</body>
+</html>
